@@ -1,26 +1,34 @@
 import express from "express";
 import dotenv from "dotenv";
-import { v4 as uuidv4 } from "uuid";
 
 import { acquireLock, releaseLock } from "./lock.js";
 import { bookSeat } from "./seatService.js";
+import redis from "./redis.js";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
+/*
+Home Route
+*/
 app.get("/", (req, res) => {
   res.send("Ticket Booking System Running");
 });
 
+
+/*
+Book Seat API
+Example:
+POST /api/book/A1
+*/
 app.post("/api/book/:seatId", async (req, res) => {
 
   const seatId = req.params.seatId;
-  const userId = uuidv4();
 
-  const lockKey = `lock:seat:${seatId}`;
-  const lockValue = uuidv4();
+  const lockKey = `lock:${seatId}`;
+  const lockValue = Date.now().toString();
 
   const locked = await acquireLock(lockKey, lockValue);
 
@@ -32,13 +40,9 @@ app.post("/api/book/:seatId", async (req, res) => {
 
   try {
 
-    const result = await bookSeat(seatId, userId);
+    const result = await bookSeat(seatId, "user");
 
-    if (!result.success) {
-      return res.status(400).json(result);
-    }
-
-    return res.status(200).json(result);
+    res.json(result);
 
   } finally {
 
@@ -48,6 +52,37 @@ app.post("/api/book/:seatId", async (req, res) => {
 
 });
 
+
+/*
+Check Seat Availability
+Example:
+GET /api/seats
+*/
+app.get("/api/seats", async (req, res) => {
+
+  const seats = ["A1", "A2", "A3", "A4"];
+  const result = {};
+
+  for (const seat of seats) {
+
+    const booked = await redis.get(`seat:${seat}`);
+
+    if (booked) {
+      result[seat] = "booked";
+    } else {
+      result[seat] = "available";
+    }
+
+  }
+
+  res.json(result);
+
+});
+
+
+/*
+Start Server
+*/
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
